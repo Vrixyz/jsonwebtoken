@@ -1,13 +1,25 @@
 # Changelog
 
+## 5.0.1 (2018-09-10)
+
+- Add implementation of FromStr for Algorithm
+
+## 5.0.0 (2018-08-13)
+
+- Update ring
+- Change error handling to be based on simple struct/enum rather than error-chain
+- Fix validations not being called properly in some cases
+- Default validation is not checking `iat` and `nbf` anymore
+
 ## 4.0.1 (2018-03-19)
+
+- Add method to decode a token without signature verification
 
 ## 4.0.0 (2017-11-22)
 
 ### Breaking changes
 
 - Make it mandatory to specify the algorithm in `decode`
-
 
 ## 3.0.0 (2017-09-08)
 

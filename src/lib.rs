@@ -5,40 +5,32 @@
 #![deny(missing_docs)]
 
 #[macro_use]
-extern crate error_chain;
-#[macro_use]
 extern crate serde_derive;
-extern crate serde_json;
-extern crate serde;
 extern crate base64;
-extern crate ring;
-extern crate untrusted;
 extern crate chrono;
+extern crate ring;
+extern crate serde;
+extern crate serde_json;
+extern crate untrusted;
 
+mod crypto;
 /// All the errors, generated using error-chain
 pub mod errors;
 mod header;
-mod crypto;
 mod serialization;
 mod validation;
 
+pub use crypto::{sign, verify, Algorithm};
 pub use header::Header;
-pub use crypto::{
-    Algorithm,
-    sign,
-    verify,
-};
-pub use validation::Validation;
 pub use serialization::TokenData;
-
+pub use validation::Validation;
 
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
 
-use errors::{Result, ErrorKind};
+use errors::{new_error, ErrorKind, Result};
 use serialization::{from_jwt_part, from_jwt_part_claims, to_jwt_part};
-use validation::{validate};
-
+use validation::validate;
 
 /// Encode the header and claims given and sign the payload using the algorithm from the header and the key
 ///
@@ -66,7 +58,7 @@ pub fn encode<T: Serialize>(header: &Header, claims: &T, key: &[u8]) -> Result<S
     let encoded_header = to_jwt_part(&header)?;
     let encoded_claims = to_jwt_part(&claims)?;
     let signing_input = [encoded_header.as_ref(), encoded_claims.as_ref()].join(".");
-    let signature = sign(&*signing_input, key.as_ref(), header.alg)?;
+    let signature = sign(&*signing_input, key, header.alg)?;
 
     Ok([signing_input, signature].join("."))
 }
@@ -78,9 +70,9 @@ macro_rules! expect_two {
         let mut i = $iter;
         match (i.next(), i.next(), i.next()) {
             (Some(first), Some(second), None) => (first, second),
-            _ => return Err(ErrorKind::InvalidToken.into())
+            _ => return Err(new_error(ErrorKind::InvalidToken)),
         }
-    }}
+    }};
 }
 
 /// Decode a token into a struct containing 2 fields: `claims` and `header`.
@@ -102,24 +94,27 @@ macro_rules! expect_two {
 /// // Claims is a struct that implements Deserialize
 /// let token_data = decode::<Claims>(&token, "secret", &Validation::new(Algorithm::HS256));
 /// ```
-pub fn decode<T: DeserializeOwned>(token: &str, key: &[u8], validation: &Validation) -> Result<TokenData<T>> {
+pub fn decode<T: DeserializeOwned>(
+    token: &str,
+    key: &[u8],
+    validation: &Validation,
+) -> Result<TokenData<T>> {
     let (signature, signing_input) = expect_two!(token.rsplitn(2, '.'));
     let (claims, header) = expect_two!(signing_input.rsplitn(2, '.'));
     let header: Header = from_jwt_part(header)?;
 
     if !verify(signature, signing_input, key, header.alg)? {
-        return Err(ErrorKind::InvalidSignature.into());
+        return Err(new_error(ErrorKind::InvalidSignature));
     }
 
     if !validation.algorithms.contains(&header.alg) {
-        return Err(ErrorKind::InvalidAlgorithm.into());
+        return Err(new_error(ErrorKind::InvalidAlgorithm));
     }
 
-    let (decoded_claims, claims_map): (T, _)  = from_jwt_part_claims(claims)?;
-
+    let (decoded_claims, claims_map): (T, _) = from_jwt_part_claims(claims)?;
     validate(&claims_map, validation)?;
 
-    Ok(TokenData { header: header, claims: decoded_claims })
+    Ok(TokenData { header, claims: decoded_claims })
 }
 
 /// Decode a token without any signature validation into a struct containing 2 fields: `claims` and `header`.
@@ -146,9 +141,9 @@ pub fn dangerous_unsafe_decode<T: DeserializeOwned>(token: &str) -> Result<Token
     let (claims, header) = expect_two!(signing_input.rsplitn(2, '.'));
     let header: Header = from_jwt_part(header)?;
 
-    let (decoded_claims, _): (T, _)  = from_jwt_part_claims(claims)?;
+    let (decoded_claims, _): (T, _) = from_jwt_part_claims(claims)?;
 
-    Ok(TokenData { header: header, claims: decoded_claims })
+    Ok(TokenData { header, claims: decoded_claims })
 }
 
 /// Decode a token and return the Header. This is not doing any kind of validation: it is meant to be
